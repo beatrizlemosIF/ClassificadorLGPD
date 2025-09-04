@@ -1,0 +1,176 @@
+import pandas as pd
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.feature_extraction.text import CountVectorizer
+from nltk.corpus import stopwords
+from collections import Counter
+import nltk
+import requests
+import textwrap
+from bs4 import BeautifulSoup
+from sklearn.metrics import precision_score, recall_score, f1_score
+
+# Baixa stopwords (roda só na primeira vez)
+nltk.download('stopwords')
+stopwords_pt = stopwords.words('portuguese')
+
+# Carrega os dados
+df = pd.read_csv("dataset_embaralhado.csv")
+df.dropna(inplace=True)
+
+# Define X (entrada) e Y (saída)
+X_df = df['dado']
+Y = df['tipo'].values  # sim ou não
+
+# Vetorização com remoção de stopwords
+vectorizer = CountVectorizer(stop_words=stopwords_pt)
+X = vectorizer.fit_transform(X_df).toarray()
+
+# Divide em treino, teste e validação
+porcentagem_de_treino = 0.8
+porcentagem_de_teste = 0.1
+
+tamanho_de_treino = int(porcentagem_de_treino * len(Y))
+tamanho_de_teste = int(porcentagem_de_teste * len(Y))
+tamanho_de_validacao = len(Y) - tamanho_de_treino - tamanho_de_teste
+
+# Separação dos dados
+treino_dados = X[:tamanho_de_treino]
+treino_marcacoes = Y[:tamanho_de_treino]
+
+fim_de_treino = tamanho_de_treino + tamanho_de_teste
+
+teste_dados = X[tamanho_de_treino:fim_de_treino]
+teste_marcacoes = Y[tamanho_de_treino:fim_de_treino]
+
+validacao_dados = X[fim_de_treino:]
+validacao_marcacoes = Y[fim_de_treino:]
+
+# Função de treino e predição
+def fit_and_predict(nome, modelo, treino_dados, treino_marcacoes, teste_dados, teste_marcacoes):
+    modelo.fit(treino_dados, treino_marcacoes)
+    resultado = modelo.predict(teste_dados)
+    acertos = resultado == teste_marcacoes
+    total_de_acertos = sum(acertos)
+    total_de_elementos = len(teste_dados)
+    taxa_de_acerto = 100.0 * total_de_acertos / total_de_elementos
+    print(f"Taxa de acerto do algoritmo {nome}: {taxa_de_acerto:.2f}%")
+    return taxa_de_acerto
+
+# Avaliação final com o vencedor
+def teste_real(modelo, validacao_dados, validacao_marcacoes):
+    resultado = modelo.predict(validacao_dados)
+    acertos = resultado == validacao_marcacoes
+    total_de_acertos = sum(acertos)
+    total_de_elementos = len(validacao_marcacoes)
+    taxa_de_acerto = 100.0 * total_de_acertos / total_de_elementos
+    print(f"Taxa de acerto do vencedor no mundo real: {taxa_de_acerto:.2f}%")
+
+# Função para avaliar métricas detalhadas no CSV
+def avaliar_modelo_com_metricas(modelo, vectorizer, df):
+    X_textos = df['dado'].astype(str)
+    y_true = df['tipo'].astype(str)
+
+    X_vetorizado = vectorizer.transform(X_textos)
+    y_pred = modelo.predict(X_vetorizado)
+
+    precisao = precision_score(y_true, y_pred, pos_label='sim')
+    recall = recall_score(y_true, y_pred, pos_label='sim')
+    f1 = f1_score(y_true, y_pred, pos_label='sim')
+
+    print("\n--- Métricas do modelo usando o CSV ---")
+    print(f"Precisão: {precisao:.2f}")
+    print(f"Recall:   {recall:.2f}")
+    print(f"F1-score: {f1:.2f}")
+
+    falsos_positivos = df[(y_pred == 'sim') & (y_true == 'não')]
+    falsos_negativos = df[(y_pred == 'não') & (y_true == 'sim')]
+
+    print(f"\nFalsos positivos (modelo disse SIM, mas é NÃO): {len(falsos_positivos)}")
+    print(f"Falsos negativos (modelo disse NÃO, mas é SIM): {len(falsos_negativos)}")
+
+    return falsos_positivos, falsos_negativos
+
+# Treinamento e comparação
+modeloMultinomial = MultinomialNB()
+resultadoMultinomial = fit_and_predict("MultinomialNB", modeloMultinomial, treino_dados, treino_marcacoes, teste_dados, teste_marcacoes)
+
+modeloAdaBoost = AdaBoostClassifier()
+resultadoAdaBoost = fit_and_predict("AdaBoostClassifier", modeloAdaBoost, treino_dados, treino_marcacoes, teste_dados, teste_marcacoes)
+
+# Escolhe o melhor
+vencedor = modeloMultinomial if resultadoMultinomial > resultadoAdaBoost else modeloAdaBoost
+
+# Validação no "mundo real"
+teste_real(vencedor, validacao_dados, validacao_marcacoes)
+
+# Acurácia da base
+acerto_base = max(Counter(validacao_marcacoes).values())
+taxa_de_acerto_base = 100.0 * acerto_base / len(validacao_marcacoes)
+print(f"Taxa de acerto base: {taxa_de_acerto_base:.2f}%")
+print(f"Total de validação: {len(validacao_dados)} amostras")
+
+# Avalia métricas detalhadas no CSV
+falsos_positivos, falsos_negativos = avaliar_modelo_com_metricas(vencedor, vectorizer, df)
+
+# --- Análise de site com scripts ---
+def analisar_site(url, palavra_sensivel=None):
+    try:
+        # Cabeçalho para simular um navegador
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36'
+        }
+
+        resposta = requests.get(url, timeout=5, headers=headers)
+        sopa = BeautifulSoup(resposta.text, 'html.parser')
+
+        # Texto visível do HTML
+        texto_visivel = sopa.get_text(separator=' ').lower()
+
+        # Texto dentro das tags <script>
+        scripts = sopa.find_all('script')
+        conteudo_scripts = ' '.join(script.string or '' for script in scripts if script.string)
+
+        # Combina os dois
+        texto_completo = texto_visivel + ' ' + conteudo_scripts
+        texto_completo = ' '.join(texto_completo.split())  # limpa espaços extras
+
+        # Divide o texto em blocos de ~300 caracteres, respeitando palavras
+        blocos = textwrap.wrap(texto_completo, width=300, break_long_words=False, break_on_hyphens=False)
+
+        # Vetoriza e classifica os blocos
+        blocos_transformados = vectorizer.transform(blocos)
+        resultados = vencedor.predict(blocos_transformados)
+
+        total_sim = list(resultados).count('sim')
+        total_nao = list(resultados).count('não')
+
+        print(f"\nAnálise do site: {url}")
+        print(f"Total de blocos analisados: {len(blocos)}")
+        print(f"Blocos com dados sensíveis: {total_sim}")
+        print(f"Blocos sem dados sensíveis: {total_nao}")
+
+        # Mostrar cada bloco com a classificação
+        print("\n=== Blocos e marcações ===")
+        for i, (bloco, marcacao) in enumerate(zip(blocos, resultados)):
+            print(f"\nBloco {i+1} - Classificação: {marcacao.upper()}")
+            print(bloco.strip())
+
+        # Contagem da palavra sensível apenas nos blocos 'sim'
+        if palavra_sensivel:
+            palavra_sensivel = palavra_sensivel.lower()
+            blocos_sim = [bloco for bloco, r in zip(blocos, resultados) if r == 'sim']
+            texto_sim = ' '.join(blocos_sim)
+            contagem = texto_sim.count(palavra_sensivel)
+            print(f"\nA palavra '{palavra_sensivel}' apareceu {contagem} vezes nos blocos sensíveis.")
+
+        if total_sim > 0:
+            print("\n O site contém possíveis dados sensíveis ou pessoais.") #identifica tudo pela presença
+        else:
+            print("\n Nenhum dado sensível ou pessoal identificado no conteúdo do site.")
+
+    except Exception as e:
+        print(f"Erro ao acessar ou processar o site: {e}")
+
+# --- Exemplo de uso ---
+analisar_site("https://www2.bauru.sp.gov.br/", palavra_sensivel="cpf")

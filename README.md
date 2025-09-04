@@ -5,3 +5,4 @@ onde, está sendo explorado o uso do K - Fold e possíveis melhorias no dataset 
 
 * Obs : Todos os datasets, estão estruturados com duas colunas, onde a primeira refere-se ao dado (pessoal e sensível) e o segundo relacionado a sua classificação ('sim' - é sensível ou pessoal;
    ou 'não' - não se enquadra em nenhum dos dois)
+* Todos os códigos estãos endo executados via google Colab

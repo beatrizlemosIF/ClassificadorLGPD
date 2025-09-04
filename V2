@@ -15,7 +15,7 @@ nltk.download('stopwords')
 stopwords_pt = stopwords.words('portuguese')
 
 # Carrega os dados
-df = pd.read_csv("dataset_embaralhado.csv")
+df = pd.read_csv("dataset_ficticio_balanceado.csv")
 df.dropna(inplace=True)
 
 # Define X (entrada) e Y (saída)
